@@ -120,7 +120,7 @@ class YouTubeTranscriber:
     def _transcribe_with_openai(self, audio_file_path):
         with open(audio_file_path, "rb") as audio_file:
             transcript = self.openai_client.audio.transcriptions.create(
-                model="gpt-4o-mini-transcribe",
+                model="gpt-5-nano",
                 file=audio_file,
                 response_format="text"
             )
