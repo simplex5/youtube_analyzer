@@ -17,6 +17,7 @@ from openai import OpenAI
 import speech_recognition as sr
 from pydub import AudioSegment
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
 class YouTubeTranscriber:
     UNWANTED_TEXTS = [
@@ -131,6 +132,8 @@ class YouTubeTranscriber:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             },
             'no_warnings': False,
+            'retries': 1,
+            'fragment_retries': 1,
         }
         
         print(f"Downloading audio from: {youtube_url}")
@@ -154,6 +157,15 @@ class YouTubeTranscriber:
                     print(f"Audio downloaded: {audio_file}")
                     return audio_file
                     
+            except DownloadError as e:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 10
+                    print(f"\nDownload failed (attempt {attempt + 1}/{max_retries}): {e}")
+                    print(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"\nDownload failed after {max_retries} attempts")
+                    raise
             except Exception as e:
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 10
