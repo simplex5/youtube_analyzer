@@ -279,8 +279,28 @@ def main():
         print("export OPENAI_API_KEY='your_key'")
         sys.exit(1)
     
-    use_custom = input("Use custom analysis prompt? (y/n): ").strip().lower() == 'y'
-    analysis_prompt = custom_analysis_prompt() if use_custom else None
+    # Show current prompt
+    current_prompt = custom_analysis_prompt()
+    print("\nThis is the current prompt used for analysis with Claude:")
+    print("-" * 50)
+    print(current_prompt)
+    print("-" * 50)
+    
+    use_current = input("\nDo you want to use this prompt? (y/n): ").strip().lower()
+    
+    if use_current == 'y':
+        analysis_prompt = current_prompt
+    else:
+        use_default = input("Would you like to get a default response from Claude or make a custom prompt? (default/custom): ").strip().lower()
+        
+        if use_default == 'default':
+            analysis_prompt = None
+        else:
+            print("\nEnter custom prompt:")
+            analysis_prompt = input().strip()
+            if not analysis_prompt:
+                print("No prompt entered. Using default Claude response.")
+                analysis_prompt = None
     
     print("\n" + "="*50)
     print("Processing YouTube video...")
