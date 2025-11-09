@@ -6,3 +6,4 @@ __pycache__/
    venv/
    .vscode/
 youtube_env/
+youtube_analyzer3.py
