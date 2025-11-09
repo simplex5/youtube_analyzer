@@ -9,6 +9,7 @@ Requirements:
 import os
 import sys
 import re
+import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import anthropic
@@ -104,7 +105,7 @@ class YouTubeTranscriber:
         
         return max(numbers) + 1 if numbers else 1
     
-    def download_audio(self, youtube_url):
+    def download_audio(self, youtube_url, max_retries=3):
         existing_audio = self._get_existing_audio_file()
         if existing_audio:
             print("Skipping download - using existing audio file")
@@ -134,22 +135,34 @@ class YouTubeTranscriber:
         
         print(f"Downloading audio from: {youtube_url}")
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=False)
-            self.video_title = info.get('title', 'Unknown')
-            print(f"Video title: {self.video_title}")
-            
-            self._setup_directories(self.video_title)
-            
-            ydl.download([youtube_url])
-            
-            audio_files = list(self.base_youtube_audio_dir.glob("*.wav"))
-            if not audio_files:
-                raise FileNotFoundError("Downloaded audio file not found")
-            
-            audio_file = str(audio_files[0])
-            print(f"Audio downloaded: {audio_file}")
-            return audio_file
+        for attempt in range(max_retries):
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(youtube_url, download=False)
+                    self.video_title = info.get('title', 'Unknown')
+                    print(f"Video title: {self.video_title}")
+                    
+                    self._setup_directories(self.video_title)
+                    
+                    ydl.download([youtube_url])
+                    
+                    audio_files = list(self.base_youtube_audio_dir.glob("*.wav"))
+                    if not audio_files:
+                        raise FileNotFoundError("Downloaded audio file not found")
+                    
+                    audio_file = str(audio_files[0])
+                    print(f"Audio downloaded: {audio_file}")
+                    return audio_file
+                    
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 10
+                    print(f"\nDownload failed (attempt {attempt + 1}/{max_retries}): {e}")
+                    print(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"\nDownload failed after {max_retries} attempts")
+                    raise
     
     def chunk_audio(self, audio_file_path, num_chunks=30):
         existing_chunks = list(self.extracted_audio_dir.glob("chunk_*.wav"))
