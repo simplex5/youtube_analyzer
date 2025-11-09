@@ -46,13 +46,14 @@ class YouTubeTranscriber:
             dir_path.mkdir(parents=True, exist_ok=True)
     
     def _create_output_directory(self):
+        documents_dir = Path.home() / "Documents"
         counter = 1
         while True:
-            dir_name = f"youtube_analysis_{counter:03d}"
-            if not os.path.exists(dir_name):
-                Path(dir_name).mkdir(parents=True, exist_ok=True)
+            dir_name = documents_dir / f"youtube_analysis_{counter:03d}"
+            if not dir_name.exists():
+                dir_name.mkdir(parents=True, exist_ok=True)
                 print(f"Created output directory: {dir_name}")
-                return dir_name
+                return str(dir_name)
             counter += 1
     
     def download_audio(self, youtube_url):
@@ -120,7 +121,7 @@ class YouTubeTranscriber:
     def _transcribe_with_openai(self, audio_file_path):
         with open(audio_file_path, "rb") as audio_file:
             transcript = self.openai_client.audio.transcriptions.create(
-                model="gpt-5-nano",
+                model="gpt-4o-mini-transcribe",
                 file=audio_file,
                 response_format="text"
             )
