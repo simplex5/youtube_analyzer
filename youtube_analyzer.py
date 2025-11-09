@@ -8,7 +8,7 @@ Requirements:
 
 import os
 import sys
-import glob
+import re
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import anthropic
@@ -37,27 +37,80 @@ class YouTubeTranscriber:
         self.anthropic_client = anthropic.Anthropic(api_key=self.anthropic_api_key)
         self.openai_client = OpenAI(api_key=self.openai_api_key)
         
-        self.output_dir = self._create_output_directory()
-        self.downloads_dir = Path(self.output_dir) / "downloads"
-        self.transcriptions_dir = Path(self.output_dir) / "transcriptions"
-        self.extracted_audio_dir = Path(self.output_dir) / "extracted_audio"
-        
-        for dir_path in [self.downloads_dir, self.transcriptions_dir, self.extracted_audio_dir]:
-            dir_path.mkdir(parents=True, exist_ok=True)
+        self.video_title = None
+        self.output_dir = None
+        self.base_transcription_dir = None
+        self.extracted_audio_dir = None
+        self.base_youtube_audio_dir = None
+        self.responses_dir = None
     
-    def _create_output_directory(self):
+    def _sanitize_filename(self, filename):
+        """Remove invalid characters from filename"""
+        filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+        filename = filename.strip()
+        if len(filename) > 200:
+            filename = filename[:200]
+        return filename
+    
+    def _setup_directories(self, video_title):
+        """Create or reuse existing directory structure based on video title"""
         documents_dir = Path.home() / "Documents"
-        counter = 1
-        while True:
-            dir_name = documents_dir / f"youtube_analysis_{counter:03d}"
-            if not dir_name.exists():
-                dir_name.mkdir(parents=True, exist_ok=True)
-                print(f"Created output directory: {dir_name}")
-                return str(dir_name)
-            counter += 1
+        sanitized_title = self._sanitize_filename(video_title)
+        self.output_dir = documents_dir / f"{sanitized_title}_analysis"
+        
+        self.base_transcription_dir = self.output_dir / "base_transcription"
+        self.extracted_audio_dir = self.output_dir / "extracted_audio"
+        self.base_youtube_audio_dir = self.output_dir / "base_youtube_audio"
+        self.responses_dir = self.output_dir / "responses"
+        
+        for dir_path in [self.base_transcription_dir, self.extracted_audio_dir, 
+                         self.base_youtube_audio_dir, self.responses_dir]:
+            dir_path.mkdir(parents=True, exist_ok=True)
+        
+        if self.output_dir.exists():
+            print(f"Using existing directory: {self.output_dir}")
+        else:
+            print(f"Created new directory: {self.output_dir}")
+    
+    def _get_existing_transcription(self):
+        """Check if transcription already exists"""
+        transcription_file = self.base_transcription_dir / "transcription.txt"
+        if transcription_file.exists():
+            print(f"Found existing transcription: {transcription_file}")
+            return transcription_file.read_text(encoding='utf-8')
+        return None
+    
+    def _get_existing_audio_file(self):
+        """Check if audio file already exists"""
+        audio_files = list(self.base_youtube_audio_dir.glob("*.wav"))
+        if audio_files:
+            print(f"Found existing audio file: {audio_files[0]}")
+            return str(audio_files[0])
+        return None
+    
+    def _get_next_response_number(self):
+        """Get next available response number"""
+        pattern = "answer_*.txt"
+        existing_files = list(self.responses_dir.glob(pattern))
+        
+        if not existing_files:
+            return 1
+        
+        numbers = []
+        for f in existing_files:
+            match = re.search(r'answer_(\d+)\.txt$', f.name)
+            if match:
+                numbers.append(int(match.group(1)))
+        
+        return max(numbers) + 1 if numbers else 1
     
     def download_audio(self, youtube_url):
-        output_template = str(self.downloads_dir / "%(title)s.%(ext)s")
+        existing_audio = self._get_existing_audio_file()
+        if existing_audio:
+            print("Skipping download - using existing audio file")
+            return existing_audio
+        
+        output_template = str(self.base_youtube_audio_dir / "%(title)s.%(ext)s")
         
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -83,10 +136,14 @@ class YouTubeTranscriber:
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(youtube_url, download=False)
-            print(f"Video title: {info.get('title', 'Unknown')}")
+            self.video_title = info.get('title', 'Unknown')
+            print(f"Video title: {self.video_title}")
+            
+            self._setup_directories(self.video_title)
+            
             ydl.download([youtube_url])
             
-            audio_files = list(self.downloads_dir.glob("*.wav"))
+            audio_files = list(self.base_youtube_audio_dir.glob("*.wav"))
             if not audio_files:
                 raise FileNotFoundError("Downloaded audio file not found")
             
@@ -95,6 +152,11 @@ class YouTubeTranscriber:
             return audio_file
     
     def chunk_audio(self, audio_file_path, num_chunks=30):
+        existing_chunks = list(self.extracted_audio_dir.glob("chunk_*.wav"))
+        if len(existing_chunks) >= num_chunks:
+            print(f"Skipping chunking - using {len(existing_chunks)} existing chunks")
+            return sorted([str(f) for f in existing_chunks])
+        
         print(f"Loading audio file: {audio_file_path}")
         audio = AudioSegment.from_wav(audio_file_path)
         
@@ -161,6 +223,11 @@ class YouTubeTranscriber:
             return ""
     
     def transcribe_audio(self, audio_file_path, max_workers=4):
+        existing_transcription = self._get_existing_transcription()
+        if existing_transcription:
+            print("Skipping transcription - using existing transcription")
+            return existing_transcription
+        
         chunk_files = self.chunk_audio(audio_file_path)
         
         all_transcriptions = []
@@ -186,13 +253,13 @@ class YouTubeTranscriber:
         
         complete_transcription = "\n".join(all_transcriptions)
         print(f"\nTranscription complete: {len(complete_transcription)} chars")
-        return complete_transcription
-    
-    def save_transcription(self, transcription, filename="transcription.txt"):
-        output_path = self.transcriptions_dir / filename
-        output_path.write_text(transcription, encoding='utf-8')
+        
+        # Save to base_transcription directory
+        output_path = self.base_transcription_dir / "transcription.txt"
+        output_path.write_text(complete_transcription, encoding='utf-8')
         print(f"Transcription saved: {output_path}")
-        return str(output_path)
+        
+        return complete_transcription
     
     def analyze_transcription(self, transcription, analysis_prompt=None):
         if analysis_prompt is None:
@@ -224,21 +291,38 @@ class YouTubeTranscriber:
 Be thorough but concise."""
     
     def process_youtube_video(self, youtube_url, analysis_prompt=None):
-        audio_file = self.download_audio(youtube_url)
-        transcription = self.transcribe_audio(audio_file)
-        transcription_file = self.save_transcription(transcription)
+        # Get video info first to setup directories
+        ydl_opts = {'quiet': True, 'no_warnings': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=False)
+            self.video_title = info.get('title', 'Unknown')
+            self._setup_directories(self.video_title)
         
+        # Check if transcription exists
+        existing_transcription = self._get_existing_transcription()
+        
+        if existing_transcription:
+            transcription = existing_transcription
+            print("Using existing transcription - no download or transcription needed")
+        else:
+            audio_file = self.download_audio(youtube_url)
+            transcription = self.transcribe_audio(audio_file)
+        
+        # Always generate new analysis
         analysis = self.analyze_transcription(transcription, analysis_prompt)
-        analysis_file = self.transcriptions_dir / "analysis.txt"
+        
+        # Save analysis with incremented number
+        response_num = self._get_next_response_number()
+        analysis_file = self.responses_dir / f"answer_{response_num}.txt"
         analysis_file.write_text(analysis, encoding='utf-8')
         print(f"Analysis saved: {analysis_file}")
         
         return {
             "transcription": transcription,
             "analysis": analysis,
-            "transcription_file": transcription_file,
+            "transcription_file": str(self.base_transcription_dir / "transcription.txt"),
             "analysis_file": str(analysis_file),
-            "output_directory": self.output_dir
+            "output_directory": str(self.output_dir)
         }
 
 def custom_analysis_prompt():
