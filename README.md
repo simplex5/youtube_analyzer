@@ -8,7 +8,7 @@ Designed to **reuse previous work**: it skips re-downloading and re-transcribing
 ## Features
 
 - Uses `yt-dlp` to download best-quality audio from YouTube.
-- Organizes outputs **per video title** in a dedicated directory under `~/Documents`.
+- Organizes outputs **per video title** in a dedicated directory under `~/Documents` (or `C:\Users\<YourName>\Documents` on Windows).
 - Splits audio into chunks for faster, parallel transcription.
 - Primary transcription via **OpenAI audio transcription** (`gpt-4o-mini-transcribe`).
 - Automatic fallback to **Google Speech Recognition** if OpenAI fails.
@@ -49,7 +49,52 @@ brew install ffmpeg
 
 ---
 
-## Setup
+## 🪟 Windows Setup
+
+### 1. Install FFmpeg on Windows
+
+#### Option A — via Chocolatey (recommended)
+If you use [Chocolatey](https://chocolatey.org/install):
+
+```powershell
+choco install ffmpeg -y
+```
+
+#### Option B — manual install
+1. Download FFmpeg from: [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)
+2. Extract it (e.g. to `C:\ffmpeg`).
+3. Add it to your system PATH:
+   - Open **Control Panel → System → Advanced system settings → Environment Variables**.
+   - Under **System Variables**, find `Path`, click **Edit**, and add:
+     ```
+     C:\ffmpeg\bin
+     ```
+
+You can verify installation with:
+```powershell
+ffmpeg -version
+```
+
+### 2. Set Environment Variables for API Keys
+
+Open PowerShell (as Administrator or for your user) and run:
+
+```powershell
+setx ANTHROPIC_API_KEY "your_anthropic_key"
+setx OPENAI_API_KEY "your_openai_key"
+```
+
+Then **close and reopen** PowerShell to apply the new environment variables.
+
+To confirm they’re set:
+```powershell
+echo $Env:ANTHROPIC_API_KEY
+echo $Env:OPENAI_API_KEY
+```
+
+---
+
+## Setup (macOS / Linux)
 
 Set your API keys as environment variables:
 
@@ -58,7 +103,7 @@ export ANTHROPIC_API_KEY='your_anthropic_key'
 export OPENAI_API_KEY='your_openai_key'
 ```
 
-Add these to `~/.bashrc` or `~/.zshrc` to make them persistent.
+Add these to `~/.bashrc`, `~/.bash_profile`, or `~/.zshrc` to make them persistent.
 
 The script **does not** read keys from the code; missing keys will cause a clear error and exit.
 
